@@ -1,4 +1,4 @@
-from flask import Flask,jsonify,request
+from flask import Flask,jsonify,request,url_for,send_file,abort
 from flask_mysqldb import MySQL
 import os
 from werkzeug.security import check_password_hash
@@ -8,40 +8,46 @@ from datetime import datetime
 
 from flask_cors import CORS,cross_origin
 
+
+from flask import send_from_directory
+
+
+
 app = Flask(__name__)
 
 CORS(app)
 
 
 from config import config
-
-app=Flask(__name__)
-
 conexion=MySQL(app)
+
 #login
-@app.route('/validar_usuario', methods=['POST'])
+@app.route('/obtener_usuarios', methods=['GET'])
 @cross_origin()
-def validar_usuario():
+def obtener_todos_usuarios():
     try:
-        data = request.get_json()
-        usuario = data.get('usuario')
-        contraseña = data.get('contraseña')
-
         cursor = conexion.connection.cursor()
-        sql = "SELECT idDocumento, Contraseña, RolUsuario_idRolUsuarioNombre FROM Usuario WHERE idDocumento=%s"
-        cursor.execute(sql, (usuario,))
-        usuario_data = cursor.fetchone()
+        sql = """
+            SELECT idDocumento, Contraseña
+            FROM Usuario
+        """
+        cursor.execute(sql)
+        datos = cursor.fetchall()
 
-        if usuario_data:
-            id_documento, hash_contraseña, id_rol = usuario_data
-            if check_password_hash(hash_contraseña, contraseña):
-                return jsonify({'idRol': id_rol, 'mensaje': 'Usuario validado correctamente'})
-            else:
-                return jsonify({'mensaje': 'Credenciales inválidas'}), 401  # Unauthorized
+        usuarios = []
+        for dato in datos:
+            usuario = {
+                'idDocumento': dato[0],
+                'Contraseña': dato[1]
+            }
+            usuarios.append(usuario)
+
+        if usuarios:
+            return jsonify({'usuarios': usuarios, 'mensaje': 'Usuarios encontrados.'})
         else:
-            return jsonify({'mensaje': 'Usuario no encontrado'}), 404  # Not Found
-    except Exception as ex:
-        return jsonify({'mensaje': 'Error en la validación del usuario'}), 500  # Internal Server Error
+            return jsonify({'mensaje': 'Error: No se encontraron usuarios.'})
+    except Exception as e:
+        return jsonify({'mensaje': 'Error en la obtención de usuarios: ' + str(e)})
 #--------------
 #listar usuarios
 @app.route('/usuario', methods=['GET'])
@@ -59,21 +65,165 @@ def listar_usuarios():
     except Exception as ex:
         return jsonify({'mensaje':'Error'})
 #listar usuario por id
-@app.route('/usuario/<idDocumento>',methods=['GET'])
-def leer_usuario(idDocumento):
-    cursor=conexion.connection.cursor()
-    sql="SELECT * from Usuario WHERE idDocumento = '{0}'".format(idDocumento)
-    cursor.execute(sql)
-    datos=cursor.fetchone()
-    if datos != None:
-        usuario={'idDocumento':datos[0],'Nombre1':datos[1],'Nombre2':datos[2],'Apellido1':datos[3],'Apellido2':datos[4],'CorreoElectronico':datos[5],'Direccion':datos[6],'RolUsuario_idRolUsuarioNombre':datos[7],'TipodeDocumento_idTipodeDocumento':datos[8],'Contraseña':datos[9]}
-        return jsonify({'usuarios': usuario, 'mensaje': 'Usuario encontrado.'})
-    else: 
-        return jsonify({'mensaje':'Error usuario no encontrado'})
+@app.route('/obtener_datos_usuario/<int:idDocumento>', methods=['GET'])
+@cross_origin()
+def obtener_datos_usuario(idDocumento):
+    try:
+        cursor = conexion.connection.cursor()
 
+        sql = "SELECT Nombre1, Nombre2, Apellido1, Apellido2, CorreoElectronico FROM Usuario WHERE idDocumento = %s"
+        cursor.execute(sql, (idDocumento,))
+        usuario = cursor.fetchone()
+
+        if usuario:
+            datos_usuario = {
+                'nombre1': usuario[0],
+                'nombre2': usuario[1],
+                'apellido1': usuario[2],
+                'apellido2': usuario[3],
+                'correoElectronico': usuario[4]
+            }
+            return jsonify(datos_usuario)
+        else:
+            return jsonify({'error': 'Usuario no encontrado'}), 404
+    except Exception as e:
+        return jsonify({'error': 'Error al obtener los datos del usuario: ' + str(e)}), 500
+#listar notificaciones
+@app.route('/obtener_notificaciones', methods=['GET'])
+@cross_origin()
+def obtener_todas_notificaciones():
+    try:
+        cursor = conexion.connection.cursor()
+        sql = "SELECT * FROM notificacion"
+        cursor.execute(sql)
+        datos = cursor.fetchall()
+
+        notificaciones = []
+        if datos:
+            for dato in datos:
+                notificacion = {
+                    'idNotificacion': dato[0],
+                    'descripcion': dato[1],
+                    'fechaNotificacion': dato[2],
+                    'nombre': dato[3]
+                }
+                notificaciones.append(notificacion)
+        else:
+            # Si no se encuentran notificaciones, se agrega una notificación predeterminada
+            notificacion_predeterminada = {
+                'idNotificacion': -1,
+                'descripcion': 'No se encontraron notificaciones',
+                'fechaNotificacion': None,
+                'nombre': 'Notificación predeterminada'
+            }
+            notificaciones.append(notificacion_predeterminada)
+
+        if notificaciones:
+            return jsonify({'notificaciones': notificaciones, 'mensaje': 'Notificaciones encontradas.'})
+        else:
+            return jsonify({'mensaje': 'Error: No se encontraron notificaciones.'})
+    except Exception as e:
+        return jsonify({'mensaje': 'Error en la obtención de notificaciones: ' + str(e)})
+#--------------------------------------------------------------------------------------------------------
+#obtener rutinas
+@app.route('/obtener_rutinas', methods=['GET'])
+@cross_origin()
+def obtener_rutinas():
+    try:
+        cursor = conexion.connection.cursor()
+        sql = "SELECT idRutina, Nombre_Ejercicio, DuracionMin, Series, RepeticionesPorSerie, Descripcion FROM Rutina"
+        cursor.execute(sql)
+        datos = cursor.fetchall()
+
+        rutinas = []
+        for dato in datos:
+            rutina = {
+                'idRutina': dato[0],
+                'nombreEjercicio': dato[1],
+                'duracionMin': dato[2],
+                'series': dato[3],
+                'repeticionesPorSerie': dato[4],
+                'descripcion': dato[5],
+            }
+            rutinas.append(rutina)
+
+        if rutinas:
+            return jsonify({'rutinas': rutinas, 'mensaje': 'Rutinas encontradas.'})
+        else:
+            return jsonify({'mensaje': 'Error: No se encontraron rutinas.'})
+    except Exception as e:
+        return jsonify({'mensaje': 'Error en la obtención de rutinas: ' + str(e)})
+#---------------------------
+#obtener Rutinas por id
+@app.route('/obtener_rutinas/<int:idDiscapacidad>', methods=['GET'])
+@cross_origin()
+def obtener_rutinas_por_discapacidad(idDiscapacidad):
+    try:
+        cursor = conexion.connection.cursor()
+        sql = """
+            SELECT Nombre_Ejercicio, DuracionMin, Series, RepeticionesPorSerie, Descripcion
+            FROM Rutina
+            WHERE Discapacidad_idDiscapacidad = %s
+        """
+        cursor.execute(sql, (idDiscapacidad,))
+        datos = cursor.fetchall()
+
+        rutinas = []
+        if datos:
+            for dato in datos:
+                rutina = {
+                    'Nombre_Ejercicio': dato[0],
+                    'DuracionMin': dato[1],
+                    'Series': dato[2],
+                    'RepeticionesPorSerie': dato[3],
+                    'Descripcion': dato[4]
+                }
+                rutinas.append(rutina)
+        else:
+            # Si no se encuentran rutinas, se agrega una rutina predeterminada
+            rutina_predeterminada = {
+                'Nombre_Ejercicio': 'No se encontraron rutinas',
+                'DuracionMin': 0,
+                'Series': 0,
+                'RepeticionesPorSerie': 0,
+                'Descripcion': 'No se encontraron rutinas por el momento, espera a que el administrador agregue una.'
+            }
+            rutinas.append(rutina_predeterminada)
+
+        if rutinas:
+            return jsonify({'rutinas': rutinas, 'mensaje': 'Rutinas encontradas.'})
+        else:
+            return jsonify({'mensaje': 'Error: No se encontraron rutinas para esta discapacidad.'})
+    except Exception as e:
+        return jsonify({'mensaje': 'Error en la obtención de rutinas: ' + str(e)})
+#-----------------------------------------------------------------------------------------------------------
 def pagina_no_encontrada(error):
     return '<h1>La pagina que intentas buscar no existe..</h1>',404
-#------------
+#---------------------------------------------------------------------------------------------------------------
+#obtener imagen
+@app.route('/imagenes/<int:idDiscapacidad>', methods=['GET'])
+@cross_origin()
+def obtener_imagen_discapacidad(idDiscapacidad):
+    try:
+        cursor = conexion.connection.cursor()
+        sql = "SELECT imagen FROM Discapacidad WHERE idDiscapacidad = %s"
+        cursor.execute(sql, (idDiscapacidad,))
+        imagen = cursor.fetchone()
+        
+        if imagen is None:
+            abort(404)  # Devuelve un código de estado 404 si no se encuentra ninguna imagen
+        
+        nombre_imagen = imagen[0]
+        ruta_imagen = os.path.join('API_Exercise', 'imagenes', nombre_imagen)
+        
+        if not os.path.exists(ruta_imagen):
+            abort(404)  # Devuelve un código de estado 404 si la imagen no existe en la ruta especificada
+        
+        return send_file(ruta_imagen, mimetype='image/jpeg')
+    
+    except Exception as e:
+        # Maneja los errores según sea necesario
+        return str(e), 500  # Devuelve un mensaje de error y un código de estado 500 si ocurre una excepción
 #obtener discapacidades
 @app.route('/obtener_discapacidades', methods=['GET'])
 @cross_origin()
@@ -90,7 +240,7 @@ def obtener_todas_discapacidades():
                 'idDiscapacidad': dato[0],
                 'nombre': dato[1],
                 'descripcion': dato[2],
-                'imagen': dato[3].decode('utf-8') if dato[3] else None
+                'imagen': dato[3]
             }
             discapacidades.append(discapacidad)
 
@@ -101,6 +251,7 @@ def obtener_todas_discapacidades():
     except Exception as e:
         return jsonify({'mensaje': 'Error en la obtención de discapacidades: ' + str(e)})
 #------------
+
 #registro usuario
 @app.route('/usuarioregistrar',methods=['POST'])
 @cross_origin()
@@ -128,53 +279,33 @@ def registrar_usuario():
         return jsonify({"mensaje": "Usuario registrado"})
     except Exception as ex:
         return jsonify({'mensaje': 'Error al registrar usuario'})
-#--------------------
-#@app.route('/discapacidad',methods=['POST'])
-#def registrar_discapacidad():
-    #print(request.json)
-#    try:
-#        cursor=conexion.connection.cursor()
-#        sql="""INSERT INTO Discapacidad (Nombre,Descripcion) 
-#        VALUES ('{0}','{1}')""".format(request.json['Nombre'],request.json['Descripcion'])
-#        cursor.execute(sql)
-#        conexion.connection.commit()#confima la accion de insercion
-#        return jsonify({"mensaje":"discapacidad registrado"})
-#    except Exception as ex:
-#        return jsonify({'mensaje':'Error discapacidad no registrado'})
 #-------------------
 #Registro Discapacidad
 @app.route('/discapacidad', methods=['POST'])
 @cross_origin()
-def registrar_discapacidad():
+def subir_discapacidad():
     try:
+        # Obtener los datos del formulario o cuerpo de la solicitud
         nombre = request.form['Nombre']
         descripcion = request.form['Descripcion']
-        imagen = request.files['Imagen']  # Accede al archivo de imagen enviado
+        
+        if nombre is None or descripcion is None:
+            raise ValueError('Datos incompletos')
 
-        # Verifica si se envió una imagen y tiene un nombre de archivo válido
-        if imagen and imagen.filename != '':
-            # Guarda la imagen en una carpeta, asegúrate de que la carpeta exista
-            ruta_guardado = './imagenes'
-            if not os.path.exists(ruta_guardado):
-                os.makedirs(ruta_guardado)
-            ruta_imagen = os.path.join(ruta_guardado, imagen.filename)
-            imagen.save(ruta_imagen)
+        # Realizar la inserción en la base de datos
+        cursor = conexion.connection.cursor()
+        sql = """INSERT INTO Discapacidad(Nombre, Descripcion)
+                 VALUES ('{0}', '{1}')""".format(nombre, descripcion)
+        cursor.execute(sql)
+        conexion.connection.commit()
 
-            # Guarda los datos en la base de datos
-            cursor = conexion.connection.cursor()
-            sql = """INSERT INTO Discapacidad (Nombre, Descripcion,Imagen) 
-                     VALUES ('{0}', '{1}', '{2}')""".format(nombre, descripcion, ruta_imagen)
-            cursor.execute(sql)
-            conexion.connection.commit()
-            
-            return jsonify({"mensaje": "Discapacidad registrada con imagen"})
-        else:
-            return jsonify({"mensaje": "Error: no se envió ninguna imagen"})
+        return jsonify({"mensaje": "Discapacidad registrada correctamente"})
     except Exception as ex:
-        return jsonify({'mensaje': 'Error al registrar la discapacidad'})
+        error_msg = f'Error al registrar la discapacidad: {str(ex)}. Datos recibidos: Nombre={request.form.get("Nombre")}, Descripcion={request.form.get("Descripcion")}'
+        return jsonify({'mensaje': error_msg})
 #    ----------------------------------------- 
 #Registro rutinas
-@app.route('/registrar_rutina',methods=['POST'])
+@app.route('/registrar_rutina', methods=['POST'])
 @cross_origin()
 def registrar_rutina():
     try:
@@ -183,39 +314,11 @@ def registrar_rutina():
         Series = request.form['Series']
         RepeticionesPorSerie = request.form['RepeticionesPorSerie']
         Descripcion = request.form['Descripcion']
-        Imagen1 =request.files['Imagen1']
-        Imagen2 =request.files['Imagen2']
-        Imagen3 =request.files['Imagen3']
         Discapacidad_idDiscapacidad = request.form['Discapacidad_idDiscapacidad']
         
-        #lógica para manejar los datos recibidos
-        if Imagen1 and Imagen2 and Imagen3:
-            ruta_guardado = './imagenes'
-            if not os.path.exists(ruta_guardado):
-                os.makedirs(ruta_guardado)
-
-            nombre_imagen1 = secure_filename(Imagen1.filename)
-            nombre_imagen2 = secure_filename(Imagen2.filename)
-            nombre_imagen3 = secure_filename(Imagen3.filename)
-
-            ruta_imagen1 = os.path.join(ruta_guardado, nombre_imagen1)
-            ruta_imagen2 = os.path.join(ruta_guardado, nombre_imagen2)
-            ruta_imagen3 = os.path.join(ruta_guardado, nombre_imagen3)
-
-            Imagen1.save(ruta_imagen1)  # Guardar la imagen 1
-            Imagen2.save(ruta_imagen2)  # Guardar la imagen 2
-            Imagen3.save(ruta_imagen3) 
-
-            with open(ruta_imagen1, 'rb') as img_file1:
-                binary_data1 = encodebytes(img_file1.read()).decode('utf-8')
-            with open(ruta_imagen2, 'rb') as img_file2:
-                binary_data2 = encodebytes(img_file2.read()).decode('utf-8')
-            with open(ruta_imagen3, 'rb') as img_file3:
-                binary_data3 = encodebytes(img_file3.read()).decode('utf-8')
-
         cursor = conexion.connection.cursor()
-        sql = """INSERT INTO Rutina (Nombre_Ejercicio,DuracionMin,Series,RepeticionesPorSerie,Descripcion,Imagen1,Imagen2,Imagen3,Discapacidad_idDiscapacidad)
-                 VALUES ('{0}', '{1}', '{2}', '{3}', '{4}', '{5}', '{6}', '{7}', '{8}')""".format(Nombre_Ejercicio, DuracionMin, Series, RepeticionesPorSerie, Descripcion,binary_data1,binary_data2,binary_data3,Discapacidad_idDiscapacidad)
+        sql = """INSERT INTO Rutina (Nombre_Ejercicio,DuracionMin,Series,RepeticionesPorSerie,Descripcion,Discapacidad_idDiscapacidad)
+                 VALUES ('{0}', '{1}', '{2}', '{3}', '{4}', '{5}')""".format(Nombre_Ejercicio, DuracionMin, Series, RepeticionesPorSerie, Descripcion, Discapacidad_idDiscapacidad)
         cursor.execute(sql)
         conexion.connection.commit()
 
@@ -250,7 +353,122 @@ def subir_notificacion():
     except Exception as ex:
         error_msg = f'Error al subir la notificación: {str(ex)}. Datos recibidos: Descripcion={request.form.get("Descripcion")}, FechaNotificacion={request.form.get("FechaNotificacion")}, Nombre={request.form.get("Nombre")}'
         return jsonify({'mensaje': error_msg})
+#-----------------------------------
+#Eliminar discapacidades
+@app.route('/eliminar_discapacidad_con_rutinas/<int:idDiscapacidad>', methods=['DELETE'])
+@cross_origin()
+def eliminar_discapacidad_con_rutinas(idDiscapacidad):
+    try:
+        cursor = conexion.connection.cursor()
 
+        # Eliminar todas las rutinas asociadas a la discapacidad
+        sql_eliminar_rutinas = "DELETE FROM Rutina WHERE Discapacidad_idDiscapacidad = %s"
+        cursor.execute(sql_eliminar_rutinas, (idDiscapacidad,))
+        
+        # Eliminar la discapacidad
+        sql_eliminar_discapacidad = "DELETE FROM Discapacidad WHERE idDiscapacidad = %s"
+        cursor.execute(sql_eliminar_discapacidad, (idDiscapacidad,))
+
+        conexion.connection.commit()
+
+        return jsonify({'mensaje': 'Discapacidad y sus rutinas asociadas eliminadas correctamente.'})
+    except Exception as e:
+        return jsonify({'mensaje': 'Error al eliminar la discapacidad y sus rutinas asociadas: ' + str(e)})
+#-----------------
+#Editar discapacidades
+@app.route('/editar_discapacidad/<int:idDiscapacidad>', methods=['PUT'])
+@cross_origin()
+def editar_discapacidad(idDiscapacidad):
+    try:
+        data = request.json
+        nuevo_nombre = data['nombre']
+        nueva_descripcion = data['descripcion']
+        
+        cursor = conexion.connection.cursor()
+        sql = """
+            UPDATE Discapacidad
+            SET nombre = %s, descripcion = %s
+            WHERE idDiscapacidad = %s
+        """
+        cursor.execute(sql, (nuevo_nombre, nueva_descripcion, idDiscapacidad))
+        conexion.connection.commit()
+
+        return jsonify({'mensaje': 'Discapacidad editada exitosamente.'})
+    except Exception as e:
+        return jsonify({'mensaje': 'Error al editar la discapacidad: ' + str(e)})
+#-------------------
+#Rutinas Editar
+@app.route('/editar_rutina/<int:idRutina>', methods=['PUT'])
+def editar_rutina(idRutina):
+    try:
+        data = request.json
+        nuevo_nombre = data.get('nombre', '')
+        nueva_descripcion = data.get('descripcion', '')
+        nueva_duracion = data.get('duracion', 0)
+        nueva_serie = data.get('series', 0)
+        nuevas_repeticiones = data.get('repeticiones', 0)
+        cursor = conexion.connection.cursor()
+
+        sql = """
+            UPDATE Rutina
+            SET Nombre_Ejercicio = %s, Descripcion = %s, DuracionMin = %s, Series = %s, RepeticionesPorSerie = %s
+            WHERE idRutina = %s
+        """
+        cursor.execute(sql, (nuevo_nombre, nueva_descripcion, nueva_duracion, nueva_serie, nuevas_repeticiones,idRutina))
+        conexion.connection.commit()
+
+        return jsonify({'mensaje': 'Rutina actualizada correctamente.'})
+    except Exception as e:
+        return jsonify({'mensaje': 'Error al actualizar la rutina: ' + str(e)})
+#------------------------
+#Rutinas Eliminar
+@app.route('/eliminar_rutina/<int:idRutina>', methods=['DELETE'])
+def eliminar_rutina(idRutina):
+    try:
+        cursor = conexion.connection.cursor()
+
+        sql = "DELETE FROM Rutina WHERE idRutina = %s"
+        cursor.execute(sql, (idRutina,))
+        conexion.connection.commit()
+
+        return jsonify({'mensaje': 'Rutina eliminada correctamente.'})
+    except Exception as e:
+        return jsonify({'mensaje': 'Error al eliminar la rutina: ' + str(e)})
+#Actualizar datos de usuario
+@app.route('/actualizar_datos_usuario/<int:idDocumento>', methods=['PUT'])
+def actualizar_datos_usuario(idDocumento):
+    try:
+        # Obtener los datos del cuerpo de la solicitud en formato JSON
+        data = request.json
+
+        # Extraer los datos del JSON
+        nuevo_nombre1 = data.get('nombre1', '')
+        nuevo_nombre2 = data.get('nombre2', '')
+        nuevo_apellido1 = data.get('apellido1', '')
+        nuevo_apellido2 = data.get('apellido2', '')
+        nuevo_correo_electronico = data.get('correoElectronico', '')
+
+        # Crear un cursor para la base de datos
+        cursor = conexion.connection.cursor()
+
+        # Consulta SQL para actualizar los datos del usuario
+        sql = """
+            UPDATE Usuario
+            SET Nombre1 = %s, Nombre2 = %s, Apellido1 = %s, Apellido2 = %s, CorreoElectronico = %s
+            WHERE idDocumento = %s
+        """
+
+        # Ejecutar la consulta SQL con los nuevos datos del usuario
+        cursor.execute(sql, (nuevo_nombre1, nuevo_nombre2, nuevo_apellido1, nuevo_apellido2, nuevo_correo_electronico, idDocumento))
+
+        # Confirmar la actualización en la base de datos
+        conexion.connection.commit()
+
+        # Retornar un mensaje de éxito
+        return jsonify({'mensaje': 'Datos de usuario actualizados correctamente'}), 200
+    except Exception as e:
+        # Retornar un mensaje de error en caso de fallo en la actualización
+        return jsonify({'error': 'Error al actualizar los datos del usuario: ' + str(e)}), 500
 
 if __name__ == '__main__':
     app.config.from_object(config['development'])
